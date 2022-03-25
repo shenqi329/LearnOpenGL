@@ -223,6 +223,7 @@ bool MagicPenMaLiang::Magic(cv::Mat image, int texture_side_width, int texture_s
 
     ConnectAdjacentEdge(detected_edges);
 
+	// 查找轮廓
     std::vector<std::vector<cv::Point> > contours;
     cv::findContours(detected_edges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
@@ -243,14 +244,20 @@ bool MagicPenMaLiang::Magic(cv::Mat image, int texture_side_width, int texture_s
 		}
     }
 
+	// Create the marker image for the watershed algorithm
+    cv::Mat markers = cv::Mat::zeros(detected_edges.size(), CV_8U);
+	drawContours(markers, contours, static_cast<int>(maxAreaIndex), cv::Scalar(255), -1);
+
+	// 三角形填充多边形
 	PolyTriangulate(detected_edges,  contours[maxAreaIndex]);
-	_3dModel.Init(_result, contours[maxAreaIndex], image.cols, image.rows, texture_side_width, texture_side_height);
+
+	// 查找肢体(arms and legs)
+	FindLimbs(contours[maxAreaIndex], markers);
+
+	_3dModel.Init(_triangulate_result, contours[maxAreaIndex], image.cols, image.rows, texture_side_width, texture_side_height);
 
 #ifdef MagicPenMaLiang_DEBUG
-    // Create the marker image for the watershed algorithm
-    cv::Mat markers = cv::Mat::zeros(detected_edges.size(), CV_8U);
-
-	drawContours(markers, contours, static_cast<int>(maxAreaIndex), cv::Scalar(255), -1);
+    
 
 	// Draw the background marker
     cv::imshow("Markers", markers);
@@ -268,6 +275,123 @@ MagicPen3DModel *MagicPenMaLiang::Get3DModel()
 	return &_3dModel;
 }
 
+static TPPLOrientation GetOrientation(std::vector<cv::Point> &contour, long startIndex, long size) {
+  long i1, i2;
+  tppl_float area = 0;
+
+  int count = 0;
+  for (i1 = startIndex; i1 < startIndex + size; i1++) {
+	i1 = i1 % contour.size();
+    i2 = i1 + 1;
+
+	count++;
+	if(size == count) {
+		i2 = startIndex;	
+	}
+
+    area += contour[i1].x * contour[i2].y - contour[i1].y * contour[i2].x;
+  }
+  if (area > 0) {
+    return TPPL_ORIENTATION_CCW;
+  }
+  if (area < 0) {
+    return TPPL_ORIENTATION_CW;
+  }
+  return TPPL_ORIENTATION_NONE;
+}
+
+void MagicPenMaLiang::FindLimbs(std::vector<cv::Point> &contour, cv::Mat &markers) {
+
+	std::vector<LimbInfo> limbInfos;
+
+	cv::RotatedRect minAreaRect = cv::minAreaRect(contour);
+	cv::Rect rect = minAreaRect.boundingRect();
+
+	int minLimbThickThreshold = MIN(rect.width, rect.height) / 10;
+	int maxLimbLengthThreshold = MAX(rect.width, rect.height) / 8;
+	
+	minAreaRect.center;
+
+	for (size_t i = 0; i < contour.size(); i++) {
+		
+		float  minDistance = FLT_MAX;
+		float  maxDistance = 0;
+		float  maxDistanceTmp = 0;
+		size_t end_point_offset = 0;
+		size_t max_point_offset = 0;
+		size_t max_point_offset_tmp = 0;
+
+		for (size_t j = 1; j < contour.size() / 4; j++) {
+			
+			size_t next = (i + j) % contour.size();
+			
+			int distance_x = contour[i].x - contour[next].x;
+			int distance_y = contour[i].y - contour[next].y;
+
+			float distance = sqrtf(distance_x*distance_x + distance_y*distance_y);
+			
+			if (maxDistanceTmp < distance) {
+				maxDistanceTmp = distance;
+				max_point_offset_tmp = j;
+			}
+
+			if (minDistance > distance) {
+				minDistance = distance;
+				end_point_offset = j;
+				if (maxDistance < maxDistanceTmp) {
+					maxDistance = maxDistanceTmp;
+					max_point_offset = max_point_offset_tmp;
+				}
+			}
+		}
+
+		if (minDistance > minLimbThickThreshold) {
+			continue;
+		}
+		if (maxDistance < maxLimbLengthThreshold) {
+			continue;
+		}
+
+		TPPLOrientation orientation = GetOrientation(contour, i, end_point_offset);
+		if (orientation == TPPL_ORIENTATION_CCW) {
+			continue;
+		}
+
+		LimbInfo limbInfo;
+		limbInfo.minDistance = minDistance;
+		limbInfo.start_point_index = i;
+		limbInfo.end_point_offset = end_point_offset;
+		limbInfo.max_point_offset = max_point_offset;
+
+		limbInfos.push_back(limbInfo);
+	}
+
+	_limbInfo.clear();
+	
+	for (size_t i = 0; i < limbInfos.size(); ) {
+
+		LimbInfo bestInfo = limbInfos[i];
+		size_t j = i + 1;
+		for (; j < limbInfos.size(); j++) {
+			
+			if(bestInfo.start_point_index + bestInfo.end_point_offset < limbInfos[j].start_point_index) {
+				i = j;
+				break;
+			}
+		}
+		i = j;
+		_limbInfo.push_back(bestInfo);
+	}
+
+#ifdef MagicPenMaLiang_DEBUG
+	for (size_t i = 0; i < _limbInfo.size(); i++) {
+		cv::line(markers, contour[_limbInfo[i].start_point_index], contour[(_limbInfo[i].start_point_index + _limbInfo[i].end_point_offset)%contour.size()], cv::Scalar(125));
+		cv::circle(markers, contour[_limbInfo[i].start_point_index], 1, 125);
+		//cv::circle(markers, contour[(i + minSteps)%contour.size()], 1, cv::Scalar(i % 125));
+	}
+#endif
+}
+
 void MagicPenMaLiang::PolyTriangulate(cv::Mat &detected_edges, std::vector<cv::Point> &contour) {
 
     TPPLPartition pp;
@@ -276,21 +400,28 @@ void MagicPenMaLiang::PolyTriangulate(cv::Mat &detected_edges, std::vector<cv::P
     poly.Init(contour.size());
     poly.SetHole(false);
 
+	int reverseIndex = contour.size() - 1;
     for (size_t i = 0; i < contour.size(); i++) {
-        poly[i].x = contour[i].x;
-        poly[i].y = contour[i].y;
+        poly[i].x = contour[reverseIndex - i].x;
+        poly[i].y = contour[reverseIndex - i].y;
     }
-    poly.SetOrientation(TPPL_ORIENTATION_CCW);
-    pp.Triangulate_OPT(&poly, &_result);
 
+    pp.Triangulate_EC(&poly, &_triangulate_result);
 
 #ifdef MagicPenMaLiang_DEBUG
+	cv::Mat points = cv::Mat::zeros(detected_edges.size(), CV_8U);
+    for (size_t i = 0; i < contour.size(); i++) {
+
+		cv::circle(points, contour[i], 1, cv::Scalar(255));
+    }
+	cv::imshow("Points", points);
+
     // Create the marker image for the watershed algorithm
     cv::Mat triangulate = cv::Mat::zeros(detected_edges.size(), CV_8U);
 
     std::list<TPPLPoly>::iterator iter;
 
-    for(iter = _result.begin(); iter != _result.end() ;iter++) {
+    for(iter = _triangulate_result.begin(); iter != _triangulate_result.end() ;iter++) {
         if(3 == iter->GetNumPoints()) {
             cv::Point point_a(iter->GetPoints()[0].x, iter->GetPoints()[0].y);
             cv::Point point_b(iter->GetPoints()[1].x, iter->GetPoints()[1].y);

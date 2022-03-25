@@ -4,13 +4,22 @@
 #include <opencv2/imgproc.hpp>
 #include "polypartition.h"
 
+#ifdef _WIN32
 #define MagicPenMaLiang_DEBUG
+#endif
 
 // 顶点
 struct Vertice {
 	float positions[3]; // x,y,z 坐标
 	float colors[3];	// 颜色
 	float textures[2];  // 纹理坐标
+};
+
+struct LimbInfo {
+	float  minDistance;			//距离
+	size_t start_point_index;	//肢体开始点的 index (相对于 contour 数组)
+	size_t end_point_offset;	//肢体结束点相对于 start_point_index 的偏移
+	size_t max_point_offset;	//距离起始点最远的点相对于 start_point_index 的偏移
 };
 
 // 3D模型
@@ -56,9 +65,12 @@ private:
 	// 计算填充满多边形的三角形
 	void PolyTriangulate(cv::Mat &detected_edges, std::vector<cv::Point> &contour);
 
-private:
-	std::list<TPPLPoly> _result;
+	// 寻找肢体(arms and legs)
+	void FindLimbs(std::vector<cv::Point> &contour, cv::Mat &markers);
 
+private:
+	std::list<TPPLPoly> _triangulate_result;
+	std::vector<LimbInfo> _limbInfo;
 	MagicPen3DModel _3dModel;
 	static const int threshold = 100;
 	static const int ratio = 3;
