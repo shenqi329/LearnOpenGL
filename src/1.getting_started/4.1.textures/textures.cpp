@@ -80,55 +80,6 @@ int main()
 
 	magicPen.Magic(src, width_edge, height_edge);
 
-
-    unsigned int VBO, VAO, EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, magicPen.Get3DModel()->_vertices_front_size, magicPen.Get3DModel()->_vertices_front, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, magicPen.Get3DModel()->_indices_front_size, magicPen.Get3DModel()->_indices_front, GL_STATIC_DRAW);
-
-    // position attribute
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    // color attribute
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    // texture coord attribute
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
-
-	unsigned int VBO_edge, VAO_edge, EBO_edge;
-    glGenVertexArrays(1, &VAO_edge);
-    glGenBuffers(1, &VBO_edge);
-    glGenBuffers(1, &EBO_edge);
-
-    glBindVertexArray(VAO_edge);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_edge);
-    glBufferData(GL_ARRAY_BUFFER, magicPen.Get3DModel()->_vertices_side_size, magicPen.Get3DModel()->_vertices_side, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_edge);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, magicPen.Get3DModel()->_indices_side_size, magicPen.Get3DModel()->_indices_side, GL_STATIC_DRAW);
-
-    // position attribute
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    // color attribute
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    // texture coord attribute
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
-
     // load and create a texture 
     // -------------------------
     unsigned int texture;
@@ -185,6 +136,17 @@ int main()
 	glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
 	glUniformMatrix4fv(glGetUniformLocation(ourShader.ID, "projection"), 1, GL_FALSE, &projection[0][0]);
 
+
+	unsigned int VBO, VAO, EBO;
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+	glGenBuffers(1, &EBO);
+
+	unsigned int VBO_edge, VAO_edge, EBO_edge;
+	glGenVertexArrays(1, &VAO_edge);
+	glGenBuffers(1, &VBO_edge);
+	glGenBuffers(1, &EBO_edge);
+
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window))
@@ -192,6 +154,47 @@ int main()
         // input
         // -----
         processInput(window);
+
+		// 更新模型，形成动画
+		magicPen.Tick(glfwGetTime());
+
+		glBindVertexArray(VAO);
+
+		glBindBuffer(GL_ARRAY_BUFFER, VBO);
+		glBufferData(GL_ARRAY_BUFFER, magicPen.Get3DModel()->_vertices_front_size, magicPen.Get3DModel()->_vertices_front, GL_STATIC_DRAW);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, magicPen.Get3DModel()->_indices_front_size, magicPen.Get3DModel()->_indices_front, GL_STATIC_DRAW);
+
+		// position attribute
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(0);
+		// color attribute
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+		glEnableVertexAttribArray(1);
+		// texture coord attribute
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+		glEnableVertexAttribArray(2);
+
+
+		glBindVertexArray(VAO_edge);
+
+		glBindBuffer(GL_ARRAY_BUFFER, VBO_edge);
+		glBufferData(GL_ARRAY_BUFFER, magicPen.Get3DModel()->_vertices_side_size, magicPen.Get3DModel()->_vertices_side, GL_STATIC_DRAW);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_edge);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, magicPen.Get3DModel()->_indices_side_size, magicPen.Get3DModel()->_indices_side, GL_STATIC_DRAW);
+
+		// position attribute
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(0);
+		// color attribute
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+		glEnableVertexAttribArray(1);
+		// texture coord attribute
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+		glEnableVertexAttribArray(2);
+
 
         // render
         // ------
@@ -225,14 +228,14 @@ int main()
 		model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
         //model = glm::rotate(model, glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f));
         glUniformMatrix4fv(glGetUniformLocation(ourShader.ID, "model"), 1, GL_FALSE, &model[0][0]);
-        glDrawElements(GL_TRIANGLES, magicPen.Get3DModel()->_indices_front_size, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, magicPen.Get3DModel()->_indices_front_size / sizeof(int), GL_UNSIGNED_INT, 0);
 
 		glBindVertexArray(VAO);
 		model = glm::mat4(1.0f);
 		model = glm::translate(model, glm::vec3(0.0f, 0.0f, -0.10001f));
 		//model = glm::rotate(model, glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f));
 		glUniformMatrix4fv(glGetUniformLocation(ourShader.ID, "model"), 1, GL_FALSE, &model[0][0]);
-        glDrawElements(GL_TRIANGLES, magicPen.Get3DModel()->_indices_front_size, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, magicPen.Get3DModel()->_indices_front_size / sizeof(int), GL_UNSIGNED_INT, 0);
 
 		
 		// bind Texture
@@ -242,20 +245,26 @@ int main()
 		model = glm::mat4(1.0f);
         //model = glm::rotate(model, glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f));
         glUniformMatrix4fv(glGetUniformLocation(ourShader.ID, "model"), 1, GL_FALSE, &model[0][0]);
-        glDrawElements(GL_TRIANGLES, magicPen.Get3DModel()->_indices_side_size, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, magicPen.Get3DModel()->_indices_side_size / sizeof(int), GL_UNSIGNED_INT, 0);
 
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
         glfwSwapBuffers(window);
         glfwPollEvents();
+
+		// optional: de-allocate all resources once they've outlived their purpose:
+		// ------------------------------------------------------------------------
+		
     }
 
-    // optional: de-allocate all resources once they've outlived their purpose:
-    // ------------------------------------------------------------------------
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBO);
+	glDeleteBuffers(1, &EBO);
+
+	glDeleteVertexArrays(1, &VAO_edge);
+	glDeleteBuffers(1, &VBO_edge);
+	glDeleteBuffers(1, &EBO_edge);
 
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------

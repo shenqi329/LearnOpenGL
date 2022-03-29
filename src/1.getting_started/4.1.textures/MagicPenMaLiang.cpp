@@ -6,17 +6,17 @@
 
 // MagicPenModel3D begin
 
-void MagicPen3DModel::Init(std::list<TPPLPoly> triangles, std::vector<cv::Point> contour, int cols, int rows,  int texture_side_width, int texture_side_height) {
+void MagicPen3DModel::Init(std::list<TPPLPoly> triangles, MagicPenContour origin_contour, std::vector<MagicPenContour> division_contour, int cols, int rows,  int texture_side_width, int texture_side_height) {
 	
 
 	FreeVertice();
 
-	InitVerticesFront(triangles, cols, rows);
+	InitVerticesFront(triangles, origin_contour, cols, rows);
 	
-	InitVerticesEdge(contour, cols, rows, texture_side_width, texture_side_height);
+	InitVerticesEdge(origin_contour, division_contour, cols, rows, texture_side_width, texture_side_height);
 }
 
-void MagicPen3DModel::InitVerticesFront(std::list<TPPLPoly> triangles, int cols, int rows) {
+void MagicPen3DModel::InitVerticesFront(std::list<TPPLPoly> triangles, MagicPenContour origin_contour, int cols, int rows) {
 
 	_vertices_front_size = sizeof(Vertice) * 3 * triangles.size();
 	_vertices_front = (Vertice*)malloc(_vertices_front_size);
@@ -46,8 +46,9 @@ void MagicPen3DModel::InitVerticesFront(std::list<TPPLPoly> triangles, int cols,
 			_vertices_front[offset].colors[2] = 0.5f;
 
 			// texture coords
-			_vertices_front[offset].textures[0] = iter->GetPoints()[i].x / cols;
-			_vertices_front[offset].textures[1] = iter->GetPoints()[i].y / rows;
+			size_t origin_contour_index = iter->GetPoints()[i].id;
+			_vertices_front[offset].textures[0] = (float)origin_contour[origin_contour_index].point.x / cols;
+			_vertices_front[offset].textures[1] = (float)origin_contour[origin_contour_index].point.y / rows;
 
 			_indices_front[index*3 + i] = index*3 + i;
 		}
@@ -55,24 +56,30 @@ void MagicPen3DModel::InitVerticesFront(std::list<TPPLPoly> triangles, int cols,
 
 }
 
-void MagicPen3DModel::InitVerticesEdge(std::vector<cv::Point> contour, int cols, int rows, int texture_side_width, int texture_side_height) {
+void MagicPen3DModel::InitVerticesEdge(MagicPenContour origin_contour, std::vector<MagicPenContour> division_contour, int cols, int rows, int texture_side_width, int texture_side_height) {
 
-	_vertices_side_size = sizeof(Vertice) * 2 * contour.size();
+	_vertices_side_size = sizeof(Vertice) * 2 * origin_contour.size();
 	_vertices_side = (Vertice*)malloc(_vertices_side_size);
 
-	_indices_side_size = sizeof(int) * 3 * 2 * contour.size();
+	_indices_side_size = sizeof(int) * 3 * 2 * origin_contour.size();
 	_indices_side = (int*)malloc(_indices_side_size);
 
 	float distance_total = 0;
-	for (int index = 0; index < contour.size(); index++) {
+	for (int index = 0; index < origin_contour.size(); index++) {
 
-		int point_next_index = (index + 1) % contour.size();
+		int point_next_index = (index + 1) % origin_contour.size();
 
-		float point_x =  (float(contour[index].x) - cols/2) * 2 / cols;
-		float point_y = -(float(contour[index].y) - rows/2) * 2 / rows;
+		float point_x =  (float(origin_contour[index].point.x) - cols/2) * 2 / cols;
+		float point_y = -(float(origin_contour[index].point.y) - rows/2) * 2 / rows;
 
-		float point_next_x =  (float(contour[point_next_index].x) - cols/2) * 2 / cols;
-		float point_next_y = -(float(contour[point_next_index].y) - rows/2) * 2 / rows;
+		size_t id0 = origin_contour[index].indexs[0];
+		size_t id1 = origin_contour[index].indexs[1];
+
+		float point_x_tick = (float(division_contour[id0][id1].point.x) - cols/2) * 2 / cols;
+		float point_y_tick = -(float(division_contour[id0][id1].point.y) - rows/2) * 2 / rows;
+
+		float point_next_x =  (float(origin_contour[point_next_index].point.x) - cols/2) * 2 / cols;
+		float point_next_y = -(float(origin_contour[point_next_index].point.y) - rows/2) * 2 / rows;
 
 		float x_distance = point_x - point_next_x;
 		float y_distance = point_y - point_next_y;
@@ -83,8 +90,8 @@ void MagicPen3DModel::InitVerticesEdge(std::vector<cv::Point> contour, int cols,
 		for (int i = 0; i < 2; i++) {
 			int offset = (index*2 + i);
 
-			_vertices_side[offset].positions[0] =  point_x;
-			_vertices_side[offset].positions[1] =  point_y;
+			_vertices_side[offset].positions[0] =  point_x_tick;
+			_vertices_side[offset].positions[1] =  point_y_tick;
 
 			if(0 == i) {
 				_vertices_side[offset].positions[2] = 0.0f;
@@ -206,6 +213,10 @@ static bool IsLineBreak(cv::Mat &detected_edges, int row, int col) {
 
 bool MagicPenMaLiang::Magic(cv::Mat image, int texture_side_width, int texture_side_height) {
 
+	_image = image;
+	_texture_side_width = texture_side_width;
+	_texture_side_height = texture_side_height;
+
 	cv::Mat image_gray;
 	cv::Mat	detected_edges;
 
@@ -232,46 +243,154 @@ bool MagicPenMaLiang::Magic(cv::Mat image, int texture_side_width, int texture_s
 	}
 
 	ApproxPoly(contours);
-
 	float maxArea = 0;
 	int maxAreaIndex = 0;
     for (size_t i = 0; i < contours.size(); i++) {
 		cv::RotatedRect minAreaRect = cv::minAreaRect(contours[i]);
-		
 		float area = minAreaRect.size.width * minAreaRect.size.height;
 		if (area > maxArea) {
 			maxAreaIndex = i;
 		}
     }
 
+	_origin_contour.resize(contours[maxAreaIndex].size());
+	for (size_t i = 0; i < contours[maxAreaIndex].size(); i++){
+		_origin_contour[i].point = contours[maxAreaIndex][i];
+	}
+	
+	// 查找肢体(arms and legs)
+	FindLimbs(contours[maxAreaIndex]);
+
+	MagicPenContour body_contour;
+	_division_contour.clear();
+	for (size_t i = 0; i < _origin_contour.size(); i++) {
+		
+		bool isLimb = false;
+		for (size_t j = 0; j < _limbInfo.size(); j++) {
+
+			size_t end_index = _limbInfo[j].start_point_index + _limbInfo[j].end_point_offset;
+
+			if(i > _limbInfo[j].start_point_index && i < end_index) {
+				isLimb = true;
+			}
+		}
+
+		if (isLimb) {
+			continue;
+		}
+
+		MagicPenPoint point;
+		point.point = _origin_contour[i].point;
+		point.index = i;
+
+		_origin_contour[i].indexs[0] = _division_contour.size();
+		_origin_contour[i].indexs[1] = body_contour.size();
+
+		body_contour.push_back(point);
+	}
+	_division_contour.push_back(body_contour);
+
+	for (size_t i = 0; i < _limbInfo.size(); i++) {
+		MagicPenContour limb;
+		MagicPenPoint point;
+		for (size_t j = 0; j <= _limbInfo[i].end_point_offset; j++) {
+			size_t index = (_limbInfo[i].start_point_index + j) % _origin_contour.size();
+			point.point = _origin_contour[index].point;
+			point.index = index;
+
+			_origin_contour[index].indexs[0] = _division_contour.size();
+			_origin_contour[index].indexs[1] = limb.size();
+
+			limb.push_back(point);
+		}
+		_division_contour.push_back(limb);
+	}
+
+	//_origin_contour = body_contour;
+	// 三角形填充多边形
+	PolyTriangulate(_division_contour);
+
+	_3dModel.Init(_triangulate_result, _origin_contour, _division_contour,image.cols, image.rows, texture_side_width, texture_side_height);
+
+#ifdef MagicPenMaLiang_DEBUG
 	// Create the marker image for the watershed algorithm
     cv::Mat markers = cv::Mat::zeros(detected_edges.size(), CV_8U);
 	drawContours(markers, contours, static_cast<int>(maxAreaIndex), cv::Scalar(255), -1);
 
-	// 三角形填充多边形
-	PolyTriangulate(detected_edges,  contours[maxAreaIndex]);
+	ShowDebugWindows(detected_edges, markers);
+#endif
 
-	// 查找肢体(arms and legs)
-	FindLimbs(contours[maxAreaIndex], markers);
+	return true;
+}
 
-	_3dModel.Init(_triangulate_result, contours[maxAreaIndex], image.cols, image.rows, texture_side_width, texture_side_height);
+void MagicPenMaLiang::Tick(float tick) {
+	
+	for (size_t i = 1; i < _division_contour.size(); i++) {
+		for (size_t j = 0; j < _division_contour[i].size(); j++) {
+			//_division_contour[i][j].point.y += 0.01;
+		}
+	}
+	
+	PolyTriangulate(_division_contour);
+	_3dModel.Init(_triangulate_result, _origin_contour, _division_contour,_image.cols, _image.rows, _texture_side_width, _texture_side_height);
+	
+#ifdef MagicPenMaLiang_DEBUG
+	ShowDebugWindows_Triangulate();
+#endif
+}
 
 #ifdef MagicPenMaLiang_DEBUG
-    
+void MagicPenMaLiang::ShowDebugWindows_Points() {
 
+	cv::Mat points = cv::Mat::zeros(_image.size(), CV_8U);
+    for (size_t i = 0; i < _origin_contour.size(); i++) {
+
+		cv::circle(points, _origin_contour[i].point, 1, cv::Scalar(255));
+    }
+	cv::imshow("Points", points);
+}
+
+void MagicPenMaLiang::ShowDebugWindows_Triangulate() {
+	// Create the marker image for the watershed algorithm
+    cv::Mat triangulate = cv::Mat::zeros(_image.size(), CV_8U);
+
+    std::list<TPPLPoly>::iterator iter;
+
+    for(iter = _triangulate_result.begin(); iter != _triangulate_result.end() ;iter++) {
+        if(3 == iter->GetNumPoints()) {
+            cv::Point point_a(iter->GetPoints()[0].x, iter->GetPoints()[0].y);
+            cv::Point point_b(iter->GetPoints()[1].x, iter->GetPoints()[1].y);
+            cv::Point point_c(iter->GetPoints()[2].x, iter->GetPoints()[2].y);
+            cv::line(triangulate, point_a, point_b, cv::Scalar(255));
+            cv::line(triangulate, point_b, point_c, cv::Scalar(255));
+            cv::line(triangulate, point_c, point_a, cv::Scalar(255));
+        }
+    }
+    cv::imshow("Triangulate", triangulate);
+}
+
+void MagicPenMaLiang::ShowDebugWindows(cv::Mat detected_edges, cv::Mat &markers) {
+	
+	
+	ShowDebugWindows_Points();
+
+    ShowDebugWindows_Triangulate();
+
+	for (size_t i = 0; i < _limbInfo.size(); i++) {
+		cv::line(markers, _origin_contour[_limbInfo[i].start_point_index].point, _origin_contour[(_limbInfo[i].start_point_index + _limbInfo[i].end_point_offset) % _origin_contour.size()].point, cv::Scalar(125), 2);
+		cv::circle(markers, _origin_contour[_limbInfo[i].start_point_index].point, 1, 125);
+		//cv::circle(markers, contour[(i + minSteps)%contour.size()], 1, cv::Scalar(i % 125));
+	}
 	// Draw the background marker
     cv::imshow("Markers", markers);
 
     //![display]
     cv::imshow("Edge Map", detected_edges);
     //![display]
+}
 #endif
 
-	return true;
-}
-
-MagicPen3DModel *MagicPenMaLiang::Get3DModel()
-{
+MagicPen3DModel *MagicPenMaLiang::Get3DModel() {
 	return &_3dModel;
 }
 
@@ -300,9 +419,9 @@ static TPPLOrientation GetOrientation(std::vector<cv::Point> &contour, long star
   return TPPL_ORIENTATION_NONE;
 }
 
-void MagicPenMaLiang::FindLimbs(std::vector<cv::Point> &contour, cv::Mat &markers) {
+void MagicPenMaLiang::FindLimbs(std::vector<cv::Point> &contour) {
 
-	std::vector<LimbInfo> limbInfos;
+	std::vector<MagicPenLimbInfo> limbInfos;
 
 	cv::RotatedRect minAreaRect = cv::minAreaRect(contour);
 	cv::Rect rect = minAreaRect.boundingRect();
@@ -357,7 +476,7 @@ void MagicPenMaLiang::FindLimbs(std::vector<cv::Point> &contour, cv::Mat &marker
 			continue;
 		}
 
-		LimbInfo limbInfo;
+		MagicPenLimbInfo limbInfo;
 		limbInfo.minDistance = minDistance;
 		limbInfo.start_point_index = i;
 		limbInfo.end_point_offset = end_point_offset;
@@ -370,7 +489,7 @@ void MagicPenMaLiang::FindLimbs(std::vector<cv::Point> &contour, cv::Mat &marker
 	
 	for (size_t i = 0; i < limbInfos.size(); ) {
 
-		LimbInfo bestInfo = limbInfos[i];
+		MagicPenLimbInfo bestInfo = limbInfos[i];
 		size_t j = i + 1;
 		for (; j < limbInfos.size(); j++) {
 			
@@ -382,58 +501,36 @@ void MagicPenMaLiang::FindLimbs(std::vector<cv::Point> &contour, cv::Mat &marker
 		i = j;
 		_limbInfo.push_back(bestInfo);
 	}
-
-#ifdef MagicPenMaLiang_DEBUG
-	for (size_t i = 0; i < _limbInfo.size(); i++) {
-		cv::line(markers, contour[_limbInfo[i].start_point_index], contour[(_limbInfo[i].start_point_index + _limbInfo[i].end_point_offset)%contour.size()], cv::Scalar(125));
-		cv::circle(markers, contour[_limbInfo[i].start_point_index], 1, 125);
-		//cv::circle(markers, contour[(i + minSteps)%contour.size()], 1, cv::Scalar(i % 125));
-	}
-#endif
 }
 
-void MagicPenMaLiang::PolyTriangulate(cv::Mat &detected_edges, std::vector<cv::Point> &contour) {
+
+void MagicPenMaLiang::PolyTriangulate(std::vector<MagicPenContour> &contours) {
 
     TPPLPartition pp;
 
-    TPPLPoly poly;
-    poly.Init(contour.size());
-    poly.SetHole(false);
+	TPPLPolyList inpolys;
 
-	int reverseIndex = contour.size() - 1;
-    for (size_t i = 0; i < contour.size(); i++) {
-        poly[i].x = contour[reverseIndex - i].x;
-        poly[i].y = contour[reverseIndex - i].y;
-    }
+	_triangulate_result.clear();
 
-    pp.Triangulate_EC(&poly, &_triangulate_result);
+	for (size_t i = 0; i < contours.size(); i++) {
+		MagicPenContour contour = contours[i];
+		
+		TPPLPoly poly;
+		poly.Init(contour.size());
+		poly.SetHole(false);
 
-#ifdef MagicPenMaLiang_DEBUG
-	cv::Mat points = cv::Mat::zeros(detected_edges.size(), CV_8U);
-    for (size_t i = 0; i < contour.size(); i++) {
+		int reverseIndex = contour.size() - 1;
+		for (size_t j = 0; j < contour.size(); j++) {
+			
+			int origin_index = contour[reverseIndex - j].index;
+			poly[j].x = contour[reverseIndex - j].point.x;
+			poly[j].y = contour[reverseIndex - j].point.y;
+			poly[j].id = origin_index;
+		}
 
-		cv::circle(points, contour[i], 1, cv::Scalar(255));
-    }
-	cv::imshow("Points", points);
-
-    // Create the marker image for the watershed algorithm
-    cv::Mat triangulate = cv::Mat::zeros(detected_edges.size(), CV_8U);
-
-    std::list<TPPLPoly>::iterator iter;
-
-    for(iter = _triangulate_result.begin(); iter != _triangulate_result.end() ;iter++) {
-        if(3 == iter->GetNumPoints()) {
-            cv::Point point_a(iter->GetPoints()[0].x, iter->GetPoints()[0].y);
-            cv::Point point_b(iter->GetPoints()[1].x, iter->GetPoints()[1].y);
-            cv::Point point_c(iter->GetPoints()[2].x, iter->GetPoints()[2].y);
-            cv::line(triangulate, point_a, point_b, cv::Scalar(255));
-            cv::line(triangulate, point_b, point_c, cv::Scalar(255));
-            cv::line(triangulate, point_c, point_a, cv::Scalar(255));
-        }
-    }
-
-    cv::imshow("Triangulate", triangulate);
-#endif
+		inpolys.push_back(poly);
+	}
+    pp.Triangulate_EC(&inpolys, &_triangulate_result);
 }
 
 void MagicPenMaLiang::ConnectAdjacentEdge(cv::Mat &detected_edges) {
