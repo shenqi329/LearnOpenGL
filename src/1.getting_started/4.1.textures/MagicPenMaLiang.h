@@ -9,7 +9,7 @@
 #endif
 
 // 顶点
-struct Vertice {
+struct MagicPenVertice {
 	float positions[3]; // x,y,z 坐标
 	float colors[3];	// 颜色
 	float textures[2];  // 纹理坐标
@@ -24,14 +24,29 @@ struct MagicPenPoint {
 	};
 };
 
+enum MagicPenContourType {
+	MagicPenContourBody = 0,	// 躯干
+	MagicPenContourArm_Left,	// 左手
+	MagicPenContourArm_Right,	// 右手
+	MagicPenContourLeg_Left,	// 左脚
+	MagicPenContourLeg_Right,	// 右脚
+};
+
+
 struct MagicPenLimbInfo {
 	float  minDistance;			// 距离
 	size_t start_point_index;	// 肢体开始点的 index (相对于 contour 数组)
 	size_t end_point_offset;	// 肢体结束点相对于 start_point_index 的偏移
 	size_t max_point_offset;	// 距离起始点最远的点相对于 start_point_index 的偏移
+
+	MagicPenContourType type = MagicPenContourBody;
 };
 
-typedef std::vector<MagicPenPoint> MagicPenContour;
+struct MagicPenContour {
+	std::vector<MagicPenPoint> contour_points;
+
+	MagicPenLimbInfo limb_info;
+};
 
 // 3D模型
 class MagicPen3DModel {
@@ -48,14 +63,14 @@ private:
 
 public:
 	// 正面信息
-	Vertice *_vertices_front = nullptr;
+	MagicPenVertice *_vertices_front = nullptr;
 	int _vertices_front_size = 0;
 
 	int _indices_front_size = 0;
 	int* _indices_front = nullptr;
 
 	// 侧面信息
-	Vertice *_vertices_side = nullptr;
+	MagicPenVertice *_vertices_side = nullptr;
 	int _vertices_side_size = 0;
 
 	int _indices_side_size = 0;
@@ -71,6 +86,8 @@ public:
 
 	void Tick(float tick);
 
+	void Tick(float tick, MagicPenContour &contour);
+
 	MagicPen3DModel *Get3DModel();
 private:
 	
@@ -82,6 +99,8 @@ private:
 
 	// 寻找肢体(arms and legs)
 	void FindLimbs(std::vector<cv::Point> &contour);
+
+	void CalculationLimbInfoType(MagicPenLimbInfo &limbInfo, cv::Rect boundRect);
 
 #ifdef MagicPenMaLiang_DEBUG
 	void ShowDebugWindows(cv::Mat detected_edges, cv::Mat &markers);
@@ -104,6 +123,8 @@ private:
 	std::list<TPPLPoly> _triangulate_result;
 	
 	MagicPen3DModel _3dModel;
+
+	float _tickSum = 0.0f;
 	
 	static const int threshold = 100;
 	
