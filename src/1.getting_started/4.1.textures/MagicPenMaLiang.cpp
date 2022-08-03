@@ -212,6 +212,53 @@ static bool IsLineBreak(cv::Mat &detected_edges, int row, int col) {
     return false;
 }
 
+void GetMaskMaxWhiteRect(cv::Mat mask , cv::Rect &rect) {
+
+	bool setBegin = false;
+	
+	struct WhiteSpace {
+		int beginRow = 0;
+		int endRow = 0;
+	};
+
+	WhiteSpace maxWhiteSpace;
+	WhiteSpace whiteSpace;
+
+	std::vector<int> whiteTag(mask.rows);
+	for (size_t row = 0; row < mask.rows; row++) {
+		uchar* p1 = mask.ptr<uchar>(row);
+		int whiteCount = 0;
+		for (size_t col = 0; col < mask.cols; col++) {
+			uchar c = p1[col];
+			if (0 != c) {
+				whiteCount++;
+			}
+			if (whiteCount > mask.rows / 2) {
+				if (!setBegin) {
+					whiteSpace.beginRow = row;
+					setBegin = true;
+				}
+				break;
+			}
+		}
+		if(setBegin) {
+			
+			whiteSpace.endRow = row;
+
+			if (whiteCount < mask.rows / 2) {
+				setBegin = false;
+			}
+			if (whiteSpace.endRow - whiteSpace.beginRow > maxWhiteSpace.endRow - maxWhiteSpace.beginRow) {
+				maxWhiteSpace = whiteSpace;
+			}
+		}
+	}
+
+	rect.x = 0;
+	rect.y = maxWhiteSpace.beginRow;
+	rect.width = mask.cols;
+	rect.height = maxWhiteSpace.endRow - maxWhiteSpace.beginRow + 1;
+}
 
 bool MagicPenMaLiang::Magic(cv::Mat image, int texture_side_width, int texture_side_height) {
 
@@ -221,12 +268,23 @@ bool MagicPenMaLiang::Magic(cv::Mat image, int texture_side_width, int texture_s
 
 	cv::Mat image_gray;
 	cv::Mat	detected_edges;
+	cv::Mat	mask;
 
-	cvtColor(image, image_gray, cv::COLOR_BGR2GRAY);
+	// 查找白色区域
+	std::vector<int> lower_bound = {155, 155, 155};
+    std::vector<int> upper_bound = {255, 255, 255};
+	cv::inRange(image, lower_bound, upper_bound, mask);
+
+	cv::Rect maxWhiteRect;
+	GetMaskMaxWhiteRect(mask , maxWhiteRect);
+
+	// 获取白色区域灰度图，用于后续检测
+	cv::cvtColor(image, image_gray, cv::COLOR_BGR2GRAY);
+	image_gray(maxWhiteRect).copyTo(detected_edges);
 
     //![reduce_noise]
     /// Reduce noise with a kernel 3x3
-    cv::blur(image_gray, detected_edges, cv::Size(3,3));
+    cv::blur(detected_edges, detected_edges, cv::Size(3,3));
     //![reduce_noise]
 
     //![canny]
@@ -245,19 +303,40 @@ bool MagicPenMaLiang::Magic(cv::Mat image, int texture_side_width, int texture_s
 	}
 
 	ApproxPoly(contours);
+
+	// 筛选最大且居中的轮廓
 	float maxArea = 0;
-	int maxAreaIndex = 0;
+	int maxAreaIndex = -1;
     for (size_t i = 0; i < contours.size(); i++) {
 		cv::RotatedRect minAreaRect = cv::minAreaRect(contours[i]);
+
+		if (abs(minAreaRect.center.x - image.cols / 2) > image.cols / 6) {
+			continue;
+		}
+
+		if (abs(minAreaRect.center.y + maxWhiteRect.y  - image.rows / 2) > image.rows / 6) {
+			continue;
+		}
+
 		float area = minAreaRect.size.width * minAreaRect.size.height;
 		if (area > maxArea) {
+			maxArea = area;
 			maxAreaIndex = i;
 		}
     }
 
+	if (maxAreaIndex < 0) {
+		return false;
+	}
+
+	//cv::Mat contours_img(detected_edges.size(), CV_8U, cv::Scalar(0));
+	//drawContours(contours_img, contours, maxAreaIndex, cv::Scalar(255), 1);
+	//imshow("contours_img", contours_img);
+
 	_origin_contour.contour_points.resize(contours[maxAreaIndex].size());
 	for (size_t i = 0; i < contours[maxAreaIndex].size(); i++){
-		_origin_contour.contour_points[i].point = contours[maxAreaIndex][i];
+		_origin_contour.contour_points[i].point.x = contours[maxAreaIndex][i].x + maxWhiteRect.x;
+		_origin_contour.contour_points[i].point.y = contours[maxAreaIndex][i].y + maxWhiteRect.y;
 	}
 	
 	// 查找肢体(arms and legs)

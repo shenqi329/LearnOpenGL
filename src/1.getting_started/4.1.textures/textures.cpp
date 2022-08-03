@@ -69,8 +69,9 @@ int main()
     // ------------------------------------
     Shader ourShader("4.1.texture.vs", "4.1.texture.fs");
 
+	cv::String image_path = FileSystem::getPath("resources/textures/xtc3.png");
 	//![load]
-	cv::Mat src = cv::imread(FileSystem::getPath("resources/textures/rakugaki.png").c_str(), cv::IMREAD_COLOR);
+	cv::Mat src = cv::imread(image_path.c_str(), cv::IMREAD_COLOR);
 	//![load]
 
 	// load image, create texture and generate mipmaps
@@ -94,7 +95,7 @@ int main()
     // load image, create texture and generate mipmaps
     int width, height, nrChannels;
     // The FileSystem::getPath(...) is part of the GitHub repository so we can find files on any IDE/platform; replace it with your own image path.
-	unsigned char *data = stbi_load(FileSystem::getPath("resources/textures/rakugaki.png").c_str(), &width, &height, &nrChannels, 0);
+	unsigned char *data = stbi_load(image_path.c_str(), &width, &height, &nrChannels, 0);
     
 	if (data)
     {
